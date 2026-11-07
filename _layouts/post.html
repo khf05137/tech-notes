@@ -1,0 +1,18 @@
+---
+layout: default
+---
+<div class="article-shell">
+  <div class="article-top"><a class="back-link" href="{{ '/' | relative_url }}">← 記事一覧</a><span class="eyebrow">TECHNICAL NOTE</span></div>
+  <header class="article-header">
+    <div class="tags">{% for category in page.categories %}<a class="tag" href="{{ '/categories/' | relative_url }}#{{ category | slugify: 'raw' | uri_escape }}">{{ category | escape }}</a>{% endfor %}</div>
+    <h1>{{ page.title | escape }}</h1>
+    <p class="article-description">{{ page.description | escape }}</p>
+    <div class="article-meta"><span>{{ site.author }}</span><span>公開 <time datetime="{{ page.date | date_to_xmlschema }}">{{ page.date | date: '%Y.%m.%d' }}</time></span>{% if page.updated %}<span>更新 <time datetime="{{ page.updated | date_to_xmlschema }}">{{ page.updated | date: '%Y.%m.%d' }}</time></span>{% endif %}</div>
+  </header>
+  <div class="article-grid">
+    <article class="prose" data-article-body>{{ content }}</article>
+    <aside class="article-sidebar" aria-label="記事の目次"><nav class="toc" data-toc hidden><h2>この記事の内容</h2><ol></ol><a class="to-top" href="#main">ページの先頭へ ↑</a></nav></aside>
+  </div>
+  {% assign related_count = 0 %}{% capture related_items %}{% for post in site.posts %}{% if post.url != page.url %}{% assign match = false %}{% for category in page.categories %}{% if post.categories contains category %}{% assign match = true %}{% endif %}{% endfor %}{% if match and related_count < 3 %}{% assign related_count = related_count | plus: 1 %}<li><a href="{{ post.url | relative_url }}">{{ post.title | escape }}</a></li>{% endif %}{% endif %}{% endfor %}{% endcapture %}
+  {% if related_count > 0 %}<section class="related"><h2>関連記事</h2><ul>{{ related_items }}</ul></section>{% endif %}
+</div>
