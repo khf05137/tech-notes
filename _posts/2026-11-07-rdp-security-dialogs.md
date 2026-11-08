@@ -2,7 +2,7 @@
 title: "WindowsのRDP接続で表示される4つの確認画面と対処方法"
 description: "初回の注意画面、RDPファイルの発行元、資格情報、接続先証明書。それぞれが確認する対象と、設定を見直す手順を整理します。"
 date: 2026-11-07 12:00:00 +0900
-updated: 2026-11-08 13:00:00 +0900
+updated: 2026-11-08 18:00:00 +0900
 categories: [Windows]
 tags: [RDP, 証明書, グループポリシー, mstsc]
 ---
@@ -82,9 +82,76 @@ $newCert | Format-List Subject, Thumbprint, HasPrivateKey
 
 組織で運用する場合は、既存の証明書発行・配布の方針に従います。自己署名証明書をルートストアへ登録すると信頼の起点が増えるため、検証対象を確認して登録します。
 
+### 署名用証明書をPFXに保存し、別PCへ移行する
+
+署名用証明書をバックアップする場合や、別PC・別Windowsユーザーでも同じ証明書で `.rdp` に署名する場合は、**証明書と秘密鍵を一緒にPFXへ保存**する。
+
+| 用途 | 必要なファイル・取り込み先 |
+|---|---|
+| 署名済み `.rdp` を使って接続するだけ | 公開証明書 `.cer`。後述の信頼ストアへ登録 |
+| 別PCでも同じ証明書で `.rdp` に署名する | 秘密鍵付き `.pfx`。署名するユーザーの［個人］へ登録 |
+
+**PowerShell：作成元PCでPFXに保存する**
+
+証明書を作成したWindowsユーザーで実行する。上記の証明書作成手順と同じSubject名の証明書が1件だけ存在し、秘密鍵がエクスポート可能であることが前提。
+
+```powershell
+$cert = Get-ChildItem Cert:\CurrentUser\My |
+    Where-Object { $_.Subject -eq "CN=Example RDP Publisher" }
+
+$password = Read-Host "PFX保存用パスワード" -AsSecureString
+
+Export-PfxCertificate -Cert $cert `
+    -FilePath "$env:USERPROFILE\RdpPublisher.pfx" `
+    -Password $password
+```
+
+ユーザーフォルダー直下に `RdpPublisher.pfx` が保存される。新規作成時にエクスポート可能であることを明示したい場合は、上記の証明書作成手順の `New-SelfSignedCertificate` に `-KeyExportPolicy Exportable` を追加する。既存の秘密鍵がエクスポート不可なら、この保存操作では変更できない。
+
+**PowerShell：別PCへインポートする**
+
+PFXを別PCへコピーし、**今後署名に使うWindowsユーザー**で実行する。例ではコピー先を `C:\Rdp\RdpPublisher.pfx` とする。
+
+```powershell
+$password = Read-Host "PFX保存時のパスワード" -AsSecureString
+
+$cert = Import-PfxCertificate `
+    -FilePath "C:\Rdp\RdpPublisher.pfx" `
+    -CertStoreLocation "Cert:\CurrentUser\My" `
+    -Password $password
+
+$cert | Format-List Subject, Thumbprint, HasPrivateKey
+```
+
+`HasPrivateKey : True` で秘密鍵が含まれることを確認し、Subject・Thumbprintが作成元の証明書と一致するか確認する。取り込み先は［現在のユーザー］→［個人］。以後は移行先の同じWindowsユーザーで、次節の方法により証明書を読み出して署名できる。
+
+取り込み先からも再びPFXを書き出す必要がある場合は、`Import-PfxCertificate` に `-Exportable` を追加する。指定しない場合、取り込まれた秘密鍵はエクスポート不可になる。署名自体には `-Exportable` は不要。
+
+**GUI：PFXへの保存**
+
+1. 作成元PCで `Win + R` → `certmgr.msc`。
+2. ［個人］→［証明書］で署名用証明書を右クリック→［すべてのタスク］→［エクスポート］。
+3. **［はい、秘密キーをエクスポートします］**を選択する。選択できない場合は、秘密鍵の有無・エクスポート可否を確認する。
+4. ［Personal Information Exchange（PKCS #12 / PFX）］形式を選ぶ。
+5. パスワードを設定し、`RdpPublisher.pfx` として保存する。バックアップ目的では、元の秘密鍵を削除するオプションは選ばない。
+
+**GUI：別PCへの取り込み**
+
+1. 今後署名するWindowsユーザーで、コピーしたPFXをダブルクリックする。
+2. 保存場所に［現在のユーザー］を選ぶ。
+3. PFX保存時のパスワードを入力する。再エクスポートが必要なら、秘密キーをエクスポート可能にする項目も選ぶ。
+4. ［証明書をすべて次のストアに配置する］→**［個人］**を指定して完了する。
+5. `certmgr.msc` の［個人］→［証明書］で対象を開き、対応する秘密キーがある旨の表示と拇印を確認する。
+
+**PFXは同じ発行元として署名できる秘密鍵を含む。** バックアップ・署名担当PCへの移行用として安全に移送・保管し、接続するだけの接続元PCには公開証明書のCERを配布する。PFXを［個人］へ取り込む操作と、接続時の証明書の信頼・警告抑止設定は別であり、移行先でもRDP接続する場合は後述の信頼設定・ポリシー設定を別途行う。
+
+このPFXの保存・取り込み手順はMicrosoft公式の仕様に基づくもので、今回Windows実機で新たに検証したものではない。
+
+参考：[Microsoft Learn: Export-PfxCertificate](https://learn.microsoft.com/en-us/powershell/module/pki/export-pfxcertificate?view=windowsserver2025-ps)／[Import-PfxCertificate](https://learn.microsoft.com/en-us/powershell/module/pki/import-pfxcertificate?view=windowsserver2025-ps)
+
 ### 作成済み証明書をCN名で取得して署名する
 
-`rdpsign` はWindowsに含まれるRDPファイル署名用ツールです。証明書を作成したPCの、同じWindowsユーザーでPowerShellを開きます。作成時とは別の日・別のPowerShellウィンドウから実行できます。
+`rdpsign` はWindowsに含まれるRDPファイル署名用ツールです。証明書を作成したPCの、同じWindowsユーザーでPowerShellを開きます。作成時とは別の日・別のPowerShellウィンドウから実行できます。PFXで移行した場合は、移行先で秘密鍵付き証明書を取り込んだWindowsユーザーで実行します。
 
 次の例では、現在ユーザーの［個人］ストア内で、Subjectが `CN=Example RDP Publisher` と一致する証明書が1件だけ存在する前提です。本例のSubjectはCNだけで構成しています。
 
@@ -151,6 +218,43 @@ GUIでは `Win + R` から `certmgr.msc` を開き、現在のユーザーの証
 2026年7月の更新以降、従来のSHA-1に加えてSHA-2の拇印へ対応しました。SHA-256などの拇印を、対象PCのポリシーヘルプに記載された形式とプレフィックスで登録します。
 
 該当する署名済みファイルでは、発行元確認の警告が表示されず、ファイルが要求するリダイレクトが自動的に有効になります。そのため、信頼する署名者と共有対象を絞って設定します。[公式資料：RDPファイルのグループポリシー](https://learn.microsoft.com/en-us/windows-server/remote/remote-desktop-services/remotepc/manage-rdp-file-security-settings-with-group-policy)
+
+### 注：certmgrの［拇印］とSHA-256拇印は異なる
+
+`certmgr.msc` で証明書を開いたときの［詳細］→［拇印］は、**SHA-1で計算した40桁の値**。項目名が単に「拇印」でもSHA-256ではない。PowerShellの `$cert.Thumbprint` も同じSHA-1拇印を返す。
+
+| 表示・指定 | 意味 |
+|---|---|
+| certmgrの［拇印］／`$cert.Thumbprint` | SHA-1拇印（40桁） |
+| 作成時の `-HashAlgorithm SHA256`／証明書の［署名ハッシュ アルゴリズム］ | 証明書自体の署名に使うハッシュ方式。［拇印］の方式を変更するものではない |
+| このポリシーに登録する `sha256:<64桁>` | 証明書をSHA-256でハッシュした拇印 |
+
+**SHA-1の40桁に `sha256:` を付けてもSHA-256拇印にはならず、証明書と一致しない。** SHA-1の40桁をプレフィックスなしで登録して警告が消える場合があるのは、従来形式との互換動作によるもの。本手順ではSHA-1を使わず、**SHA-256以上の拇印を使用する**。ポリシーヘルプでもSHA-1は非推奨で、今後のセキュリティ更新で既定無効となる旨が案内されている。
+
+従来のcertmgrの証明書詳細画面の［拇印］では、SHA-256へ切り替えて取得できない。GUI操作では［詳細］→［ファイルにコピー］から［DER encoded binary X.509 (.CER)］形式で書き出し、その後、下記のコマンドでSHA-256拇印を計算する。上記の証明書作成手順の `Export-Certificate` で保存したCERも利用できる。GUIのポリシー入力欄には、下記で得た**64桁の前に `sha256:` を付けた全体**を登録する。
+
+**確認実績（2026-11-08）：** 利用環境で `sha256:`＋正しいSHA-256拇印64桁を登録し、発行元の確認画面が消えることを確認。SHA-1拇印40桁に `sha256:` を付けた場合は抑止されなかった。
+
+参考：[Microsoft Learn: GUIの［拇印］はSHA-1](https://learn.microsoft.com/en-us/windows-server/networking/technologies/nps/nps-manage-certificates)／[X509Certificate2.Thumbprint](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.x509certificates.x509certificate2.thumbprint)／[RDPファイルのグループポリシー設定](https://learn.microsoft.com/en-us/windows-server/remote/remote-desktop-services/remotepc/manage-rdp-file-security-settings-with-group-policy)
+
+**コマンド（接続元PC、HKCUの例）**
+
+エクスポートした `.cer` がDER形式なら、そのバイト列のSHA-256を計算できる。
+
+```powershell
+$sha256 = (Get-FileHash ".\RdpPublisher.cer" -Algorithm SHA256).Hash
+"sha256:$sha256"
+```
+
+出力された `sha256:`＋64桁の文字列は、GUIのポリシー入力欄へそのままコピーできる。以下のコマンドでは、`sha256:<SHA256の64桁>` 全体をその出力に置き換え、**接続元PC**で実行する。
+
+```cmd
+reg add "HKCU\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v TrustedCertThumbprints /t REG_SZ /d "sha256:<SHA256の64桁>" /f
+reg query "HKCU\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v TrustedCertThumbprints
+gpupdate /force
+```
+
+コンピューター単位なら `HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services` に設定する（管理者権限が必要）。上記のレジストリ指定は今回の検証環境で警告が消えた実績に基づく。ドメインGPOがある場合は、次回適用時に上書きされ得る。**`Get-FileHash` はDER形式`.cer`についての例であり、PEM等のファイル形式では同じ意味にならない。**
 
 ## 資格情報の入力を省略する
 
