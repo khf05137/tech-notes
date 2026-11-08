@@ -1,0 +1,6 @@
+---
+layout: default
+title: カテゴリ
+permalink: /categories/
+---
+<div class="page-shell category-page"><p class="eyebrow">BROWSE BY TOPIC</p><h1>カテゴリ</h1><p class="page-lead">テーマから記事を探す。</p><nav class="category-jump" aria-label="カテゴリ一覧">{% assign sorted_categories = site.categories | sort %}{% for category in sorted_categories %}<a class="tag" href="#{{ category[0] | slugify: 'raw' | uri_escape }}">{{ category[0] | escape }} <span>{{ category[1] | size }}</span></a>{% endfor %}</nav>{% for category in sorted_categories %}<section class="category-section" id="{{ category[0] | slugify: 'raw' | escape }}"><div class="section-heading"><h2>{{ category[0] | escape }}</h2><span>{{ category[1] | size }} 記事</span></div>{% for post in category[1] %}{% include post-card.html post=post %}{% endfor %}</section>{% endfor %}</div>

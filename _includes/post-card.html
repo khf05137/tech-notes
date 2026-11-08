@@ -1,0 +1,6 @@
+<article class="post-card" data-post data-search="{{ include.post.title | append: ' ' | append: include.post.description | append: ' ' | append: include.post.tags | join: ' ' | escape }}">
+  <div class="post-card-meta"><div class="tags">{% for category in include.post.categories %}<a class="tag" href="{{ '/categories/' | relative_url }}#{{ category | slugify: 'raw' | uri_escape }}">{{ category | escape }}</a>{% endfor %}</div><time datetime="{{ include.post.date | date_to_xmlschema }}">{{ include.post.date | date: '%Y.%m.%d' }}</time></div>
+  <h2><a href="{{ include.post.url | relative_url }}">{{ include.post.title | escape }}</a></h2>
+  <p>{{ include.post.description | escape }}</p>
+  <div class="post-card-bottom"><span>{% for tag in include.post.tags limit: 4 %}<span class="keyword">#{{ tag | escape }}</span> {% endfor %}</span><a class="read-link" href="{{ include.post.url | relative_url }}" aria-label="{{ include.post.title | escape }}を読む">記事を読む <span aria-hidden="true">↗</span></a></div>
+</article>

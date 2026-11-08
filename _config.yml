@@ -1,0 +1,29 @@
+title: 技術ノート
+description: Windowsと.NETを中心に、開発や設定で調べたことをまとめる技術ブログ。
+lang: ja
+timezone: Asia/Tokyo
+url: https://khf05137.github.io
+baseurl: /tech-notes
+author: khf05137
+permalink: /articles/:title/
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+defaults:
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: post
+exclude:
+  - README.md
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - templates
+  - scripts
+  - package.json
+  - package-lock.json
+  - node_modules
