@@ -2,7 +2,7 @@
 title: "WindowsのRDP接続で表示される4つの確認画面と対処方法"
 description: "初回の注意画面、RDPファイルの発行元、資格情報、接続先証明書。それぞれが確認する対象と、設定を見直す手順を整理します。"
 date: 2026-11-07 12:00:00 +0900
-updated: 2026-11-07 12:00:00 +0900
+updated: 2026-11-08 13:00:00 +0900
 categories: [Windows]
 tags: [RDP, 証明書, グループポリシー, mstsc]
 ---
@@ -57,12 +57,12 @@ authentication level:i:2
 
 ドライブリダイレクトが許可されると、接続先のセッションから接続元のCドライブを `\\tsclient\C` として参照できます。ファイルに記載する共有要求と、実際に許可される共有は別であり、確認画面やポリシーの状態も影響します。
 
-### 署名用証明書を準備する
+### 署名用証明書を準備する（初回のみ）
 
-検証用の自己署名証明書は、署名を行うWindows PCのPowerShellで次のように作成できます。
+証明書の作成は初回に行います。検証用の自己署名証明書は、署名を行うWindows PCのPowerShellで次のように作成できます。
 
 ```powershell
-$cert = New-SelfSignedCertificate `
+$newCert = New-SelfSignedCertificate `
     -Type CodeSigningCert `
     -Subject "CN=Example RDP Publisher" `
     -CertStoreLocation "Cert:\CurrentUser\My" `
@@ -70,9 +70,11 @@ $cert = New-SelfSignedCertificate `
     -HashAlgorithm SHA256 `
     -NotAfter (Get-Date).AddYears(2)
 
-Export-Certificate -Cert $cert -FilePath ".\RdpPublisher.cer"
-$cert | Format-List Subject, Thumbprint, HasPrivateKey
+Export-Certificate -Cert $newCert -FilePath ".\RdpPublisher.cer"
+$newCert | Format-List Subject, Thumbprint, HasPrivateKey
 ```
+
+作成した証明書と秘密鍵は `Cert:\CurrentUser\My`（現在のユーザーの［個人］）に保存されます。PowerShellを閉じても残るため、RDPファイルへ署名するたびに作り直す必要はありません。`$newCert` は作成時だけの変数で、後の署名手順では使いません。
 
 バッククォートはPowerShellの改行継続記号です。行末に置き、後ろへ空白を追加しないようにします。
 
@@ -80,24 +82,52 @@ $cert | Format-List Subject, Thumbprint, HasPrivateKey
 
 組織で運用する場合は、既存の証明書発行・配布の方針に従います。自己署名証明書をルートストアへ登録すると信頼の起点が増えるため、検証対象を確認して登録します。
 
-### rdpsignで署名する
+### 作成済み証明書をCN名で取得して署名する
 
-`rdpsign` はWindowsに含まれるRDPファイル署名用ツールです。元ファイルを上書きするため、先にバックアップを取ります。
+`rdpsign` はWindowsに含まれるRDPファイル署名用ツールです。証明書を作成したPCの、同じWindowsユーザーでPowerShellを開きます。作成時とは別の日・別のPowerShellウィンドウから実行できます。
+
+次の例では、現在ユーザーの［個人］ストア内で、Subjectが `CN=Example RDP Publisher` と一致する証明書が1件だけ存在する前提です。本例のSubjectはCNだけで構成しています。
 
 ```powershell
-$rdpFile = "C:\Rdp\connection.rdp"
-Copy-Item $rdpFile "$rdpFile.bak"
+$cert = Get-ChildItem Cert:\CurrentUser\My |
+    Where-Object { $_.Subject -eq "CN=Example RDP Publisher" }
 
-# この指定方法は検証環境で成功したもの。下記の拇印に関する注記を参照。
-rdpsign /sha256 $cert.Thumbprint /l /v $rdpFile
+$rdpFile = "C:\Rdp\connection.rdp"
 rdpsign /sha256 $cert.Thumbprint /v $rdpFile
 ```
 
-`/l` はファイルを置き換えずにテストする指定、`/v` は詳細表示です。テストが成功したことを確認してから実際に署名します。署名後は `signscope:s:` と `signature:s:` が追加されます。
+署名する都度、保存済みの証明書を取得し直すため、作成時の変数や拇印の手入力に依存しません。説明を簡潔にするため、存在・件数・秘密鍵・有効期間・終了コードのチェックは省略しています。
 
-**拇印の指定には注意が必要です。** Microsoftの `rdpsign` の説明は `/sha256` にSHA-256の拇印を指定すると記載しています。一方、検証環境では証明書ストアの `$cert.Thumbprint`（40桁）を指定して署名できました。ツールのオプション名だけから入力値を決めず、使用するPCの `rdpsign /?` と `/l /v` の結果を確認してください。
+`/v` は詳細表示です。署名後は `signscope:s:` と `signature:s:` が追加されます。`rdpsign` は元ファイルを上書きするため、元の設定を残す場合は事前にコピーしておきます。署名対象の設定を変更した場合も、同じ証明書を取得して再署名できます。
 
-ここで署名ツールへ渡す値と、後述の信頼済み発行元ポリシーに登録するSHA-256拇印を混同しないようにします。署名対象の設定を変更した場合は再署名します。[公式資料：rdpsign](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/rdpsign)
+署名には秘密鍵が必要です。配布用の `.cer` を読み込むだけでは署名できません。また、別のWindowsユーザーや別のPCでは、同じ `CurrentUser\My` の証明書をそのまま参照できるわけではありません。
+
+**拇印の指定には注意が必要です。** Microsoftの `rdpsign` の説明は `/sha256` にSHA-256の拇印を指定すると記載しています。一方、検証環境では証明書ストアの `$cert.Thumbprint`（40桁）を指定して署名できました。ツールのオプション名だけから入力値を決めず、使用するPCの `rdpsign /?` と、ファイルを書き換えない `/l /v` のテスト結果を確認してください。
+
+ここで署名ツールへ渡す値と、後述の信頼済み発行元ポリシーに登録するSHA-256拇印を混同しないようにします。[公式資料：rdpsign](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/rdpsign)
+
+### 参考：拇印で証明書を指定する
+
+同じSubject名の証明書が複数ある場合など、特定の証明書を明示して選ぶなら、拇印（Thumbprint）で取得できます。拇印は `certmgr.msc` の対象証明書の［詳細］→［拇印］、または次の一覧で確認します。
+
+```powershell
+Get-ChildItem Cert:\CurrentUser\My |
+    Format-List Subject, Thumbprint
+```
+
+`<証明書ストアに表示される拇印40桁>` を、対象証明書のThumbprintに空白なしで置き換えます。こちらも作成時の変数には依存しません。
+
+```powershell
+$thumbprint = "<証明書ストアに表示される拇印40桁>"
+$cert = Get-Item "Cert:\CurrentUser\My\$thumbprint"
+
+$rdpFile = "C:\Rdp\connection.rdp"
+rdpsign /sha256 $cert.Thumbprint /v $rdpFile
+```
+
+証明書ストア内の証明書を選ぶための `Thumbprint` はSHA-1拇印（40桁）です。GPOへ登録するSHA-256拇印とは用途が異なります。`rdpsign /sha256` の指定については、上記の検証環境と公式説明の差に関する注記も参照してください。
+
+証明書ストアから取得する方法は、[MicrosoftのCertificateプロバイダー](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/about/about_certificate_provider?view=powershell-5.1)の仕様に基づきます。上記の独立した署名スクリプトは、今回Windows実機で新たに実行して検証したものではありません。
 
 ### 接続元で信頼を設定する
 
