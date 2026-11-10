@@ -2,7 +2,7 @@
 title: "WindowsのRDP接続で表示される4つの確認画面と対処方法"
 description: "初回の注意画面、RDPファイルの発行元、資格情報、接続先証明書。それぞれが確認する対象と、設定を見直す手順を整理します。"
 date: 2026-11-07 12:00:00 +0900
-updated: 2026-11-08 18:00:00 +0900
+updated: 2026-11-11 07:00:00 +0900
 categories: [Windows]
 tags: [RDP, 証明書, グループポリシー, mstsc]
 ---
@@ -195,6 +195,130 @@ rdpsign /sha256 $cert.Thumbprint /v $rdpFile
 証明書ストア内の証明書を選ぶための `Thumbprint` はSHA-1拇印（40桁）です。GPOへ登録するSHA-256拇印とは用途が異なります。`rdpsign /sha256` の指定については、上記の検証環境と公式説明の差に関する注記も参照してください。
 
 証明書ストアから取得する方法は、[MicrosoftのCertificateプロバイダー](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/about/about_certificate_provider?view=powershell-5.1)の仕様に基づきます。上記の独立した署名スクリプトは、今回Windows実機で新たに実行して検証したものではありません。
+
+### C#アプリから証明書ストアの証明書で署名する
+
+**C#／.NET Framework 4.8**でも、証明書ストアから証明書を取得し、その拇印を指定して `rdpsign.exe` を実行できます。以下は既存のWinFormsアプリやコンソールアプリへ追加できるクラスです。追加のNuGetパッケージは不要です。
+
+参照するのは、**アプリを実行しているWindowsユーザーの［個人］ストア（`CurrentUser\My`）**です。PFXを取り込む場合も、同じユーザーのこのストアへ登録します。
+
+| 証明書の登録先 | 登録に必要な権限 | GUI |
+| --- | --- | --- |
+| 現在のユーザーの［個人］（`CurrentUser\My`） | 通常は管理者権限不要 | `certmgr.msc` |
+| ローカルコンピューターの［個人］（`LocalMachine\My`） | 原則として管理者権限が必要 | `certlm.msc` |
+
+現在のユーザーの［個人］へ秘密鍵付き証明書を登録し、そのユーザーが秘密鍵を利用できれば、登録から署名まで通常権限で行えます。RDPファイルの保存先には書き込み権限が必要です。組織の実行制限や秘密鍵のアクセス制御がある場合は、その設定にも従います。
+
+```csharp
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Security.Cryptography.X509Certificates;
+
+public static class RdpSigner
+{
+    public static void Sign(string rdpFilePath)
+    {
+        string fullPath = Path.GetFullPath(rdpFilePath);
+
+        if (!File.Exists(fullPath))
+            throw new FileNotFoundException("RDPファイルがありません。", fullPath);
+
+        if (new FileInfo(fullPath).Length == 0)
+            throw new InvalidOperationException("RDPファイルが空です。");
+
+        using (var store = new X509Store(
+            StoreName.My, StoreLocation.CurrentUser))
+        {
+            store.Open(OpenFlags.ReadOnly);
+
+            var certificates = store.Certificates.Find(
+                X509FindType.FindBySubjectDistinguishedName,
+                "CN=Example RDP Publisher",
+                validOnly: false);
+
+            if (certificates.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    $"対象証明書が{certificates.Count}件あります。1件にしてください。");
+            }
+
+            using (var certificate = certificates[0])
+            {
+                if (!certificate.HasPrivateKey)
+                    throw new InvalidOperationException("秘密鍵がありません。");
+
+                DateTime now = DateTime.Now;
+                if (now < certificate.NotBefore || now > certificate.NotAfter)
+                    throw new InvalidOperationException("証明書の有効期間外です。");
+
+                // 64ビットWindows上の32ビットアプリからも、
+                // OS標準のSystem32にあるrdpsign.exeを呼び出す。
+                string systemDirectory =
+                    Environment.Is64BitOperatingSystem && !Environment.Is64BitProcess
+                    ? Path.Combine(Environment.GetFolderPath(
+                        Environment.SpecialFolder.Windows), "Sysnative")
+                    : Environment.SystemDirectory;
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = Path.Combine(systemDirectory, "rdpsign.exe"),
+
+                    // 本稿の検証環境で署名できた、ストアのThumbprintを指定。
+                    Arguments =
+                        $"/sha256 {certificate.Thumbprint} /v \"{fullPath}\"",
+
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                using (var process = new Process { StartInfo = startInfo })
+                {
+                    process.Start();
+
+                    // 両方を並行して読み、出力待ちによる停止を防ぐ。
+                    var outputTask = process.StandardOutput.ReadToEndAsync();
+                    var errorTask = process.StandardError.ReadToEndAsync();
+
+                    process.WaitForExit();
+
+                    string output = outputTask.GetAwaiter().GetResult();
+                    string error = errorTask.GetAwaiter().GetResult();
+
+                    if (process.ExitCode != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"RDP署名に失敗しました。" +
+                            $" 終了コード: 0x{process.ExitCode:X8}" +
+                            Environment.NewLine + output +
+                            Environment.NewLine + error);
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+呼び出し例：
+
+```csharp
+RdpSigner.Sign(@"C:\Rdp\connection.rdp");
+```
+
+`CN=Example RDP Publisher` は作成した証明書のSubjectに合わせます。同じSubjectの証明書が複数ある場合は、前節と同様に拇印で証明書を選ぶ方法へ変更してください。
+
+この例は**C#だけで署名形式を実装するものではなく、Windows標準の `rdpsign.exe` を呼び出す**構成です。PFXを直接指定するオプションはないため、事前に秘密鍵付き証明書をストアへ取り込みます。署名用PCに必要な秘密鍵を、接続するだけのPCへ配布する必要はありません。
+
+署名するファイルには `full address:s:接続先` などの有効なRDP設定を入れてください。`rdpsign` は元ファイルを上書きするので、元の設定を残したい場合はコピー先に対して実行します。同期メソッドのため、WinFormsのUIスレッドから呼ぶ場合は、処理中に画面が停止しないようバックグラウンドで実行します。
+
+`/sha256` へ渡す `certificate.Thumbprint` と、信頼済み発行元ポリシーの `sha256:`＋64桁は別の指定です。上記の `rdpsign` の注記を参照してください。
+
+**確認範囲：** このC#サンプルは今回Windows実機でコンパイル・署名動作を検証したものではありません。利用するWindows環境で署名結果を確認してください。
+
+参考：[Microsoft Learn：X509Store](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.x509certificates.x509store)／[ProcessStartInfo](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.processstartinfo)／[ファイルシステムリダイレクター（Sysnative）](https://learn.microsoft.com/en-us/windows/win32/winprog64/file-system-redirector)
 
 ### 接続元で信頼を設定する
 
