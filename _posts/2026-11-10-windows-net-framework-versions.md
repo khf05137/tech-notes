@@ -12,6 +12,8 @@ Windowsに標準搭載される.NET Frameworkは、OSのバージョンによっ
 
 **Windowsの表は標準搭載版です。後から更新されている場合、実際にはこれより新しい版が入っていることがあります。** また、OSや.NET Frameworkのサポート期間を示す表ではありません。
 
+OSの標準搭載版より新しい.NET Framework 4.xを後からWindows更新プログラムとして導入した場合、その更新をアンインストールできることがあります。たとえば、Windows 10 1809向けの.NET Framework 4.8は削除可能です。[Microsoft Update Catalog（KB4486153、「Uninstall Notes」）](https://www.catalog.update.microsoft.com/ScopedViewInline.aspx?updateid=6b34ac14-4b34-4d0a-a640-1133e9e5baa7)
+
 ## Windows 10
 
 | Windows 10のバージョン | 標準搭載.NET Framework |
