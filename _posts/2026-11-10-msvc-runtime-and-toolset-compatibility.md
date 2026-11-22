@@ -73,6 +73,33 @@ Visual C++のバージョンには、Visual Studioの製品名、`v143`のよう
 
 [Microsoft LearnのMSVCコンパイラのバージョン管理](https://learn.microsoft.com/ja-jp/cpp/overview/compiler-versions)・[Microsoft C++チームブログの17.10でのバージョン変更](https://devblogs.microsoft.com/cppblog/msvc-toolset-minor-version-number-14-40-in-vs-2022-v17-10/)
 
+### VS2026の内訳
+
+2026年11月22日時点の対応です。ツールセット名は`v145`です。VS2026ではIDEとMSVCの更新サイクルが分かれており、複数の18.xで同じMSVCの世代が使われます。Stableの行はC++ワークロードの標準、LTSCの行はそのチャネルで提供されるMSVCの版を示します。
+
+| VS2026 | チャネル | MSVCビルドツール | コンパイラ（`cl.exe`） | `_MSC_VER` | 備考 |
+|---|---|---|---|---|---|
+| 18.0 | Stable | 14.50 | `19.50.xxxxx` | `1950` | 初期版 |
+| 18.1 | Stable | 14.50 | `19.50.xxxxx` | `1950` |  |
+| 18.2 | Stable | 14.50 | `19.50.xxxxx` | `1950` |  |
+| 18.3 | Stable | 14.50 | `19.50.xxxxx` | `1950` |  |
+| 18.4 | Stable | 14.50 | `19.50.xxxxx` | `1950` |  |
+| 18.5 | Stable | 14.50 | `19.50.xxxxx` | `1950` |  |
+| 18.6 | Stable | 14.51 | `19.51.xxxxx` | `1951` | 14.51が標準になる |
+| 18.7 | Stable | 14.51 | `19.51.xxxxx` | `1951` |  |
+| 18.8 | Stable | 14.51 | `19.51.xxxxx` | `1951` |  |
+| 18.9 | Stable | 14.51 | `19.51.xxxxx` | `1951` |  |
+| 18.10 | Stable | 14.51 | `19.51.xxxxx` | `1951` |  |
+| 18.11 | Stable | 14.51 | `19.51.xxxxx` | `1951` |  |
+| 18.12 | Stable | 14.52 | `19.52.xxxxx` | `1952` | 14.52が標準になる |
+| 18.11 | LTSC | 14.52 | `19.52.xxxxx` | `1952` | 14.52を提供 |
+
+Stable 18.11の標準は14.51で、2026年11月に公開されたLTSC 18.11では14.52が提供されます。Visual Studio Installerでは旧版やプレビュー版も選択でき、実際に使用するコンパイラは`cl /Bv`で確認できます。
+
+14.53は同日時点でプレビューです。Microsoftの11月の告知では、`cl.exe`のビルド例として`19.53.36930`が掲載されています。[Microsoft C++チームブログの14.53プレビュー告知](https://devblogs.microsoft.com/cppblog/msvc-build-tools-preview-updates-november-2026/)
+
+[Microsoft LearnのVS2026リリース履歴](https://learn.microsoft.com/en-us/visualstudio/releases/2026/release-history)・[Microsoft LearnのMSVCリリース内容（14.50～14.52）](https://learn.microsoft.com/en-us/cpp/overview/what-s-new-for-msvc)・[14.51が18.6で標準になった告知](https://devblogs.microsoft.com/cppblog/msvc-version-1451-available/)・[14.52の一般提供告知（Stable 18.12／LTSC 18.11）](https://devblogs.microsoft.com/cppblog/msvc-build-tools-version-14-52-now-generally-available/)
+
 ## 「2015–2022」という製品名と詳細バージョン
 
 `Microsoft Visual C++ 2015-2022 Redistributable`は製品名です。「2022」はVisual Studioの世代を示し、公開年や具体的な更新番号ではありません。
